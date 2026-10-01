@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements.txt
+      # unittest's own discovery, not pytest: every test file already uses
+      # unittest.TestCase and this runs the whole suite (tests/, repo root as
+      # top-level so the package-relative imports resolve) with nothing beyond
+      # requirements.txt installed -- adding pytest would be a dependency for
+      # a runner this repo doesn't need.
+      - run: python3 -m unittest discover -s tests -t . -v
+      - name: Verify the entrypoint still imports
+        # Catches a module that can't even be imported (e.g. a typo'd name, a
+        # bad top-level reference) slipping past a green test run -- the
+        # suite never imports main.py, so a broken main.py could ship while
+        # every test still reports green (this is swee's CI gaining the same
+        # step after exactly that happened there). config.py requires
+        # PALSAVE_API_BACKUP_DIR at import time; PALSAVE_API_PORT has a
+        # default so it's left unset. main.py only calls uvicorn.run() under
+        # `if __name__ == "__main__":`, so importing it starts no server.
+        env:
+          PALSAVE_API_BACKUP_DIR: /tmp/palsave-api-ci-backup-dir
+        run: python3 -c "import main"
+
+  release-please:
+    # Push-only. Without this guard release-please would also run on pull
+    # requests, where it needs contents:write and pull-requests:write that a
+    # fork PR's token cannot grant -- every external contributor would see a
+    # failed check unrelated to their change.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

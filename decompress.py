@@ -8,6 +8,7 @@ update onward).
 """
 
 import ctypes
+import os
 import zlib
 from pathlib import Path
 
@@ -16,9 +17,22 @@ from binary_reader import BinaryReader, ParseError
 PALSAV_MAGIC = b"PlZ"
 
 # zao/ooz only publishes a prebuilt Windows binary; on Linux (this service's
-# only supported platform) libooz.so must be built from source -- see
-# CLAUDE.md for the build command.
-OOZ_DLL_PATH = Path(__file__).with_name("ooz") / "bin" / "libooz.so"
+# only supported platform) libooz.so must be built from source. The build
+# command is in _get_ooz_lib()'s error message below, where someone who hits
+# the missing library actually reads it.
+#
+# Absolute by configuration, repo-relative by default. The deployed service
+# keeps this outside the install directory (/var/lib/palsave-api/lib), because
+# the reconciler force-fetches over the checkout on every pin bump and would
+# otherwise delete a native artifact that nothing rebuilds. Read from the
+# environment rather than from config.py deliberately: this module is
+# self-contained by design, and config.py requires PALSAVE_API_BACKUP_DIR at
+# import, which would make every decompression test depend on an env var it
+# has no business needing.
+OOZ_DLL_PATH = Path(
+    os.environ.get("PALSAVE_API_OOZ_LIB_PATH")
+    or Path(__file__).with_name("ooz") / "bin" / "libooz.so"
+)
 
 _ooz_lib = None
 
