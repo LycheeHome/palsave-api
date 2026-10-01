@@ -1,7 +1,12 @@
+import importlib
+import os
 import struct
 import unittest
 import zlib
+from pathlib import Path
+from unittest.mock import patch
 
+import decompress
 from binary_reader import ParseError
 from decompress import decompress_sav
 
@@ -65,6 +70,27 @@ class TestDecompressSav(unittest.TestCase):
         with self.assertRaises(ParseError) as ctx:
             decompress_sav(header + body)
         self.assertIn("libooz.so", str(ctx.exception))
+
+
+class TestOozDllPath(unittest.TestCase):
+    def tearDown(self):
+        # Other test modules (e.g. test_watcher.py, via watcher.py's own
+        # `import decompress`) share this same module object -- reload once
+        # more with no override so later tests see the default path again.
+        importlib.reload(decompress)
+
+    def test_ooz_path_defaults_to_the_repo_copy(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("PALSAVE_API_OOZ_LIB_PATH", None)
+            importlib.reload(decompress)
+        self.assertEqual(decompress.OOZ_DLL_PATH.name, "libooz.so")
+        self.assertEqual(decompress.OOZ_DLL_PATH.parent.parent.name, "ooz")
+
+    def test_ooz_path_honours_the_environment(self):
+        override = "/var/lib/palsave-api/lib/libooz.so"
+        with patch.dict(os.environ, {"PALSAVE_API_OOZ_LIB_PATH": override}):
+            importlib.reload(decompress)
+        self.assertEqual(decompress.OOZ_DLL_PATH, Path(override))
 
 
 if __name__ == "__main__":
