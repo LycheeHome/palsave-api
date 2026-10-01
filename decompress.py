@@ -17,8 +17,10 @@ from binary_reader import BinaryReader, ParseError
 PALSAV_MAGIC = b"PlZ"
 
 # zao/ooz only publishes a prebuilt Windows binary; on Linux (this service's
-# only supported platform) libooz.so must be built from source -- see
-# CLAUDE.md for the build command.
+# only supported platform) libooz.so must be built from source. The build
+# command is in _get_ooz_lib()'s error message below, where someone who hits
+# the missing library actually reads it -- not in CLAUDE.md, which used to
+# point here while this pointed there and the command was in neither.
 #
 # Absolute by configuration, repo-relative by default. The deployed service
 # keeps this outside the install directory (/var/lib/palsave-api/lib), because
