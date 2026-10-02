@@ -22,13 +22,20 @@ PALSAV_MAGIC = b"PlZ"
 # the missing library actually reads it.
 #
 # Absolute by configuration, repo-relative by default. The deployed service
-# keeps this outside the install directory (/var/lib/palsave-api/lib), because
-# the reconciler force-fetches over the checkout on every pin bump and would
-# otherwise delete a native artifact that nothing rebuilds. Read from the
-# environment rather than from config.py deliberately: this module is
-# self-contained by design, and config.py requires PALSAVE_API_BACKUP_DIR at
-# import, which would make every decompression test depend on an env var it
-# has no business needing.
+# keeps this outside the install directory (/var/lib/palsave-api/lib), so that
+# surviving a deploy is a property of where the file lives rather than of which
+# deploy mechanism is in use. This comment used to say a force-fetch would
+# delete it; that was never true and was probed to be sure —
+# ansible.builtin.git with force: true is reset --hard plus checkout --force,
+# which touch tracked files only, and the module never calls git clean. The
+# real risk is the next mechanism, not the current one: an rsync-style sync,
+# or this task later gaining clean: true, would take a native artifact that
+# nothing rebuilds.
+#
+# Read from the environment rather than from config.py deliberately: this
+# module is self-contained by design, and config.py requires
+# PALSAVE_API_BACKUP_DIR at import, which would make every decompression
+# test depend on an env var it has no business needing.
 OOZ_DLL_PATH = Path(
     os.environ.get("PALSAVE_API_OOZ_LIB_PATH")
     or Path(__file__).with_name("ooz") / "bin" / "libooz.so"
