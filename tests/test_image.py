@@ -111,6 +111,41 @@ class ImageTests(unittest.TestCase):
             finally:
                 subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
 
+    def test_image_reports_a_health_verdict_and_reaches_healthy(self):
+        # lyly-admin's services board reads Docker's health verdict out of
+        # `docker compose ps`; with no HEALTHCHECK, Health is empty and every
+        # row is green regardless. This asserts the verdict exists AND that the
+        # probe actually works inside the image -- a HEALTHCHECK whose command
+        # is broken fails exactly as loudly as a dead service, which is why
+        # inspecting .Config.Healthcheck alone would not be enough.
+        with tempfile.TemporaryDirectory() as backup:
+            os.chmod(backup, 0o755)  # mkdtemp is 0700; uid 992 must read the :ro mount
+            run = subprocess.run(
+                ["docker", "run", "-d", "-v", f"{backup}:/backups:ro",
+                 "-e", "PALSAVE_API_BACKUP_DIR=/backups", TAG],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(run.returncode, 0, run.stderr)
+            cid = run.stdout.strip()
+            try:
+                health = None
+                # --start-interval=3s in the Dockerfile is what makes this
+                # bounded: on the 30s interval alone the first verdict would
+                # not land until well past any patience a test should have.
+                for _ in range(40):
+                    probe = subprocess.run(
+                        ["docker", "inspect", "--format", "{{.State.Health.Status}}", cid],
+                        capture_output=True, text=True,
+                    )
+                    health = probe.stdout.strip()
+                    if health == "healthy":
+                        break
+                    time.sleep(1)
+                logs = subprocess.run(["docker", "logs", cid], capture_output=True, text=True)
+                self.assertEqual(health, "healthy", logs.stdout + logs.stderr)
+            finally:
+                subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
+
     def test_image_writes_state_into_a_mounted_volume(self):
         # A *fresh* named volume: ownership is initialized from the image's
         # /state on first mount, and that is the step that breaks if the

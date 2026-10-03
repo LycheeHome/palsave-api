@@ -70,7 +70,16 @@ jobs:
     # Chained off release-please rather than `on: release: published`: a
     # release created with GITHUB_TOKEN (as release-please does here) does not
     # trigger other workflows, so a release-event workflow would never fire.
-    needs: release-please
+    #
+    # `test` is in needs: as well, and it is not redundant with the deploy
+    # gate. The reconciler's "every job named `test` is green" rule protects
+    # the SOURCE deploy path; nothing gates the container path, which pulls
+    # whatever tag a declaration names. Without this, a commit whose tests
+    # failed could cut a release and publish an image that is then deployed
+    # unexamined. With it, a red commit still cuts a release but publishes no
+    # image, so a declaration pinning that tag fails loudly at pull time --
+    # the safe direction, and the one someone can diagnose.
+    needs: [release-please, test]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:

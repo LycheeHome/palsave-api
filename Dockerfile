@@ -55,4 +55,25 @@ RUN mkdir -p /state && chown 992:979 /state
 USER 992:979
 WORKDIR /state
 
+# Docker's own health verdict, which is the ONLY thing that separates `running`
+# from `unhealthy` on lyly-admin's services board: with no HEALTHCHECK here,
+# `docker compose ps` reports an empty Health and the row is green whatever the
+# process is doing.
+#
+# It probes the container's own routable address, not 127.0.0.1, and that is
+# the point: a loopback-only bind inside the container answers a loopback probe
+# perfectly while the published port reaches nothing. That exact defect shipped
+# once on this branch, which is why PALSAVE_API_HOST is 0.0.0.0 above.
+# PALSAVE_API_PORT is read at runtime rather than baked in, so the probe
+# follows whatever compose sets; unset, it is the 8788 declared above. A
+# hardcoded port would leave a service declared on another one permanently
+# unhealthy.
+#
+# What it does NOT prove: that the service is doing any work. /events/new-pals
+# answers 200 with an empty list when the watcher has parsed nothing at all --
+# so this would not have caught an Oodle library path pointing at nothing,
+# because that failure IS a healthy response to every request. Liveness only.
+HEALTHCHECK --interval=30s --start-period=30s --start-interval=3s --timeout=5s --retries=3 \
+  CMD python -c "import os,socket,urllib.request; urllib.request.urlopen('http://' + socket.gethostbyname(socket.gethostname()) + ':' + os.environ.get('PALSAVE_API_PORT', '8788') + '/events/new-pals?limit=1', timeout=4).read()"
+
 ENTRYPOINT ["python", "/app/main.py"]
