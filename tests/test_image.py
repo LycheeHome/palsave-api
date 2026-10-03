@@ -2,7 +2,12 @@
 skip when docker is unavailable (CI's `test` job and off-host runs)."""
 
 import shutil
+import socket
 import subprocess
+import tempfile
+import time
+import urllib.error
+import urllib.request
 import unittest
 from pathlib import Path
 
@@ -62,6 +67,40 @@ class ImageTests(unittest.TestCase):
             text=True,
         )
         self.assertIn("main.py", inspect.stdout)
+
+    def test_image_serves_over_a_published_port(self):
+        # Proves the container binds beyond its own loopback: a published port
+        # forwards to the bridge side, so a 127.0.0.1 bind would never answer.
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        with tempfile.TemporaryDirectory() as backup:
+            run = subprocess.run(
+                ["docker", "run", "-d", "-p", f"127.0.0.1:{port}:8788",
+                 "-v", f"{backup}:/backups:ro",
+                 "-e", "PALSAVE_API_BACKUP_DIR=/backups", TAG],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(run.returncode, 0, run.stderr)
+            cid = run.stdout.strip()
+            try:
+                status = None
+                for _ in range(30):
+                    try:
+                        with urllib.request.urlopen(
+                            f"http://127.0.0.1:{port}/events/new-pals", timeout=2
+                        ) as r:
+                            status = r.status
+                            break
+                    except urllib.error.HTTPError as e:
+                        status = e.code
+                        break
+                    except OSError:
+                        time.sleep(0.5)
+                logs = subprocess.run(["docker", "logs", cid], capture_output=True, text=True)
+                self.assertEqual(status, 200, logs.stdout + logs.stderr)
+            finally:
+                subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
 
 
 if __name__ == "__main__":
