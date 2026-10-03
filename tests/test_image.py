@@ -1,6 +1,11 @@
-"""Tests for the container image. They build and run the real image, so they
-skip when docker is unavailable (CI's `test` job and off-host runs)."""
+"""Tests for the container image. They build the real image (a git clone and a
+cmake build of libooz) and run it, so they skip when docker is unavailable and
+when PALSAVE_API_SKIP_IMAGE_TESTS is set. CI's `test` job sets it on purpose:
+the deploy reconciler gates on every job named `test`, and a slow,
+network-dependent image build must not sit in front of a deploy. CI runs these
+in the separate `image` job instead."""
 
+import os
 import shutil
 import socket
 import subprocess
@@ -16,6 +21,8 @@ TAG = "palsave-api:test"
 
 
 def _docker_usable() -> bool:
+    if os.environ.get("PALSAVE_API_SKIP_IMAGE_TESTS"):
+        return False
     if shutil.which("docker") is None:
         return False
     return subprocess.run(["docker", "info"], capture_output=True).returncode == 0
@@ -76,6 +83,7 @@ class ImageTests(unittest.TestCase):
             s.bind(("127.0.0.1", 0))
             port = s.getsockname()[1]
         with tempfile.TemporaryDirectory() as backup:
+            os.chmod(backup, 0o755)  # mkdtemp is 0700; uid 992 must read the :ro mount
             run = subprocess.run(
                 ["docker", "run", "-d", "-p", f"127.0.0.1:{port}:8788",
                  "-v", f"{backup}:/backups:ro",
@@ -112,6 +120,7 @@ class ImageTests(unittest.TestCase):
         try:
             subprocess.run(["docker", "volume", "create", volume], check=True, capture_output=True)
             with tempfile.TemporaryDirectory() as backup:
+                os.chmod(backup, 0o755)  # mkdtemp is 0700; uid 992 must read the :ro mount
                 run = subprocess.run(
                     ["docker", "run", "-d", "-v", f"{volume}:/state",
                      "-v", f"{backup}:/backups:ro",
