@@ -33,9 +33,10 @@ class ImageTests(unittest.TestCase):
 
     def run_in_image(self, *args):
         # --entrypoint "" so the commands under test run directly rather than
-        # as arguments to the service entrypoint.
+        # as arguments to the service entrypoint; -w /app because the image's
+        # own cwd is /state and the modules under test live in /app.
         return subprocess.run(
-            ["docker", "run", "--rm", "--entrypoint", "", TAG, *args],
+            ["docker", "run", "--rm", "-w", "/app", "--entrypoint", "", TAG, *args],
             capture_output=True,
             text=True,
         )
@@ -101,6 +102,47 @@ class ImageTests(unittest.TestCase):
                 self.assertEqual(status, 200, logs.stdout + logs.stderr)
             finally:
                 subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
+
+    def test_image_writes_state_into_a_mounted_volume(self):
+        # A *fresh* named volume: ownership is initialized from the image's
+        # /state on first mount, and that is the step that breaks if the
+        # directory is missing from the image. A GET cannot see it.
+        volume = f"palsave-api-test-{time.time_ns()}"
+        cid = None
+        try:
+            subprocess.run(["docker", "volume", "create", volume], check=True, capture_output=True)
+            with tempfile.TemporaryDirectory() as backup:
+                run = subprocess.run(
+                    ["docker", "run", "-d", "-v", f"{volume}:/state",
+                     "-v", f"{backup}:/backups:ro",
+                     "-e", "PALSAVE_API_BACKUP_DIR=/backups", TAG],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(run.returncode, 0, run.stderr)
+                cid = run.stdout.strip()
+                owner = None
+                for _ in range(30):
+                    ls = subprocess.run(
+                        ["docker", "run", "--rm", "-v", f"{volume}:/state", "--entrypoint", "",
+                         TAG, "stat", "-c", "%u:%g", "/state"],
+                        capture_output=True, text=True,
+                    )
+                    owner = ls.stdout.strip()
+                    if owner:
+                        break
+                    time.sleep(0.5)
+                self.assertEqual(owner, "992:979", ls.stderr)
+                # The running service's own uid can create a file in its cwd.
+                write = subprocess.run(
+                    ["docker", "exec", cid, "sh", "-c", "touch probe && pwd && id -u"],
+                    capture_output=True, text=True,
+                )
+                self.assertEqual(write.returncode, 0, write.stderr)
+                self.assertEqual(write.stdout.split(), ["/state", "992"])
+        finally:
+            if cid:
+                subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
+            subprocess.run(["docker", "volume", "rm", "-f", volume], capture_output=True)
 
 
 if __name__ == "__main__":

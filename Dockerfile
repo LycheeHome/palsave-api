@@ -43,6 +43,16 @@ COPY *.py ./
 # directory and no login shell: nothing here needs either.
 RUN groupadd --gid 979 palsave-api \
     && useradd --uid 992 --gid 979 --no-create-home --shell /usr/sbin/nologin palsave-api
-USER 992:979
 
-ENTRYPOINT ["python", "main.py"]
+# State lives outside /app, as the systemd unit does (code in one directory,
+# WorkingDirectory in another): config.py's state.json and snapshots/ are
+# cwd-relative, and state must not live in the directory a deploy replaces.
+# /state must exist in the image and be owned by 992:979: Docker initializes a
+# fresh named volume from the image's content and ownership at the mount point
+# only if that path exists, otherwise the volume is created root-owned and the
+# service answers requests while its watcher silently fails every write.
+RUN mkdir -p /state && chown 992:979 /state
+USER 992:979
+WORKDIR /state
+
+ENTRYPOINT ["python", "/app/main.py"]
