@@ -45,8 +45,37 @@ jobs:
       pull-requests: write
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
+      version: ${{ steps.release.outputs.version }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-image:
+    # Chained off release-please rather than `on: release: published`: a
+    # release created with GITHUB_TOKEN (as release-please does here) does not
+    # trigger other workflows, so a release-event workflow would never fire.
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # Semver only -- deliberately no `latest`. The reconciler's validator
+          # refuses a floating tag, and a tag nothing may reference is a trap.
+          tags: ghcr.io/lycheehome/palsave-api:${{ needs.release-please.outputs.version }}
