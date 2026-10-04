@@ -1,5 +1,9 @@
-"""FastAPI app exposing the persisted new-pal event log. Binds to
-127.0.0.1 only (see main.py) -- no auth, nothing off-host can reach it.
+"""FastAPI app exposing the persisted new-pal event log. There is no auth of
+any kind here, so the bind address is the whole containment story, and it is
+not fixed in this repo: main.py binds config.HOST, which defaults to
+127.0.0.1 but is 0.0.0.0 in the container image, where the container's own
+network namespace is the boundary and compose publishes the port on
+127.0.0.1. Nothing here may be exposed beyond the host either way.
 """
 
 import logging
